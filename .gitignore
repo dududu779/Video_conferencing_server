@@ -1,0 +1,24 @@
+# ========= CMake编译产物（重点！） =========
+build/                 
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+install_manifest.txt
+
+# ========= 编译出来的目标文件、可执行程序 =========
+*.o
+*.out
+*.so
+*.a
+text                   
+
+# ========= VSCode配置缓存（可选） =========
+.vscode/
+*.swp
+*.swo
+
+# ========= 系统临时文件、日志 =========
+*.log
+*.tmp
+.DS_Store
