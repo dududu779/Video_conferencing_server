@@ -12,6 +12,7 @@
 // UDP 中继线程：收到谁发来的媒体，就原样转发给同房间的其他人
 void *udp_relay_thread(void *arg)
 {
+    // 1. 创建并绑定 UDP 套接字
     int udp_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (udp_fd < 0)
     {
@@ -38,31 +39,25 @@ void *udp_relay_thread(void *arg)
 
     char buf[UDP_BUF_SIZE];
 
+    // 2. 死循环接收转发
     while (true)
     {
         sockaddr_in sender{};
         socklen_t sender_len = sizeof(sender);
 
+        // 阻塞接收数据
         ssize_t n = recvfrom(udp_fd, buf, sizeof(buf), 0, (sockaddr *)&sender, &sender_len);
         if (n <= 0)
             continue;
 
-        // 这个包属于哪个房间、谁发的
+        // 3. 鉴定发送者身份和所属房间 (依靠 analysis.cpp 里的兜底匹配逻辑)
         int pub_uid = -1;
         int room_id = room_of_udp_sender(sender, pub_uid);
-        if (room_id == -1)
-        {
-            static int warn = 0;
-            if (warn++ < 5)
-                std::cout << "未识别的RTP来源: " << inet_ntoa(sender.sin_addr)
-                          << ":" << ntohs(sender.sin_port) << std::endl;
-            continue;
-        }
 
-        // 转发给同房间的其他人
+        // 4. 获取该房间内的所有成员
         std::vector<User_Info> members = get_room_members_snapshot(room_id);
 
-        // 诊断日志：前 3 个包 + 之后每 100 个包打一次
+        // --- 以下为调试日志，每 100 个包打印一次 ---
         static unsigned long long pkt = 0;
         ++pkt;
         if (pkt <= 3 || pkt % 100 == 0)
@@ -72,17 +67,25 @@ void *udp_relay_thread(void *arg)
                       << " → 房间 " << room_id << "，成员 " << members.size() << " 人"
                       << std::endl;
         }
+
+        // 5. 遍历成员，逐个转发
         for (auto &m : members)
         {
+            // 5.1 不发回给发送者自己
             if (m.user_id == pub_uid)
-                continue; // 不发给自己
+                continue; 
+                
+            // 5.2 如果接收者没有注册过 RTP 端口，则跳过（没法收流）
             if (m.rtp_port <= 0 || m.rtp_ip.empty())
                 continue;
 
+            // 5.3 组装目标地址
             sockaddr_in dst{};
             dst.sin_family = AF_INET;
             dst.sin_port = htons(m.rtp_port);
             dst.sin_addr.s_addr = inet_addr(m.rtp_ip.c_str());
+            
+            // 5.4 原样转发 UDP 载荷
             sendto(udp_fd, buf, n, 0, (sockaddr *)&dst, sizeof(dst));
         }
     }
